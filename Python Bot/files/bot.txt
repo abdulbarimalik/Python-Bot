@@ -1,0 +1,126 @@
+import time
+import re
+from selenium import webdriver
+from selenium.common.exceptions import NoSuchElementException
+from selenium.webdriver.common.keys import Keys
+import datetime
+import psycopg2
+# Outbound and inbound details
+tod = datetime.datetime.now()
+# d = datetime.timedelta(days = 14)
+# a = tod + d
+
+driver = webdriver.Chrome('D:\Drivers\chrome_driver\chromedriver')
+j = 5
+#cls = ['first']
+cls = ['first']
+
+for c in cls:
+    while j <=10:
+        tom = datetime.timedelta(days=j)
+        b = tod + tom
+        ret = datetime.timedelta(days=14)
+        a = b + ret
+        time.sleep(10)
+        url = 'https://www.skyscanner.net/transport/flights/lond/trv/'+b.strftime("%y%m%d")+'/'+a.strftime("%y%m%d")+'/?adults=1&children=0&adultsv2=1&childrenv2=&infants=0&cabinclass='+c+'&rtn=1&preferdirects=false&outboundaltsenabled=false&inboundaltsenabled=false&ref=home&currency=GBP'
+        #url = 'https://www.skyscanner.net/transport/flights/lond/trv/'+tod.strftime("%y%m%d")+'/'+a.strftime("%y%m%d")+'/?adults=1&children=0&adultsv2=1&childrenv2=&infants=0&cabinclass=economy&rtn=1&preferdirects=false&outboundaltsenabled=false&inboundaltsenabled=false&ref=home'
+        driver.get(url)
+        stop_check_box = './/*[contains(text(), "2+ stops")]'
+        try:
+            driver.find_element_by_xpath(stop_check_box).click()
+        except NoSuchElementException as e:
+            print('retry in 1s.')
+            time.sleep(10)
+
+        connection = psycopg2.connect(user="postgres",
+                                                      password="changeme",
+                                                      host="100.21.209.205",
+                                                      port="5432",
+                                                      database="ctip")
+        cursor = connection.cursor()
+        i = 1
+        while i < 4:
+            price_details = driver.find_element_by_xpath(
+                '//*[@id="app-root"]/div[2]/div[2]/div[1]/div[2]/button[' + str(i) + ']').click()
+            price = driver.find_element_by_xpath(
+                '//*[@id="app-root"]/div[2]/div[2]/div[1]/div[2]/button[' + str(i) + ']').get_attribute('innerText')
+            price_split = price.split('\n')
+            print (price_split[0] + ':' + price_split[2])
+            time.sleep(5)
+            all_travel_data = driver.find_elements_by_xpath('//*[@id="app-root"]/div[2]/div[2]/div[1]/div[3]/div')
+            for x, y in enumerate(all_travel_data):
+                # print("index "+str(x)+"value "+y.get_attribute('innerText'))
+                fine = []
+                details = y.get_attribute('innerText')
+                fine = details.split('\n')
+                if x != 3:
+                    if re.match("\d{2}:\d{2}", fine[0]):
+                        # print("Image Detected")
+                        img_value = driver.find_element_by_xpath(
+                            '//*[@id="app-root"]/div[2]/div[2]/div[1]/div[3]/div[' + str(
+                                x + 1) + ']/div/a/div/div[1]/div/div/div[2]/div[1]/div[1]/div/div/img')
+                        fine.insert(0, img_value.get_attribute('alt'))
+
+                    if re.match("\d{2}:\d{2}", fine[9]):
+                        img_value = driver.find_element_by_xpath(
+                            '//*[@id="app-root"]/div[2]/div[2]/div[1]/div[3]/div[' + str(
+                                x + 1) + ']/div/a/div/div[1]/div/div/div[2]/div[2]/div[1]/div/div/img')
+                        fine.insert(9, img_value.get_attribute('alt'))
+
+                    # [u'Emirates', u'09:10', u'LHR', u'12h 30', u'1 stop', u'\xa0', u'DXB', u'03:10+1', u'TRV', u'Emirates', u'04:30', u'TRV', u'14h 50', u'1 stop', u'\xa0', u'DXB', u'13:50', u'LHR', u'1 deal', u'\xa31,377', u'Select\xa0']
+                    travel_agent_out = fine[0]
+                    dep_time_out = fine[1]
+                    dep_air_out = fine[2]
+                    flight_dur_out = fine[3]
+                    flight_stay_out = fine[6]
+                    arr_time_out = fine[7]
+                    arr_air_out = fine[8]
+                    travel_agent_in = fine[9]
+                    dep_time_in = fine[10]
+                    dep_air_in = fine[11]
+                    flight_dur_in = fine[12]
+                    flight_stay_in = fine[15]
+                    arr_time_in = fine[16]
+                    arr_air_in = fine[17]
+                    fare_travel = fine[19]
+                    # print (travel_agent_out)
+                    # print (dep_time_out)
+                    # print (dep_air_out)
+                    # print (flight_dur_out)
+                    # print (flight_stay_out)
+                    # print (arr_time_out)
+                    # print (arr_air_out)
+                    # print (travel_agent_in)
+                    # print (dep_time_in)
+                    # print (dep_air_in)
+                    # print (flight_dur_in)
+                    # print (flight_stay_in)
+                    # print (arr_air_in)
+                    # print (arr_time_in)
+                    # print (fare_travel)
+
+                    try:
+
+                        postgres_insert_query = """ INSERT INTO air_data (supplier_name_out,departure_time_out
+                                                  ,arrival_time_out,departure_airport_out,arrival_airport_out,flight_duration_out,stay_out,supplier_name_in,
+                                                  departure_airport_in,arrival_airport_in,departure_time_in,arrival_time_in,
+                                                  flight_duration_in,stay_in,fare,travel_date_out,travel_date_in,cabin,destination,source) VALUES
+                                                  (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"""
+                        record_to_insert = (
+                            travel_agent_out, dep_time_out, arr_time_out,dep_air_out,arr_air_out, flight_dur_out, flight_stay_out,
+                            travel_agent_in, dep_air_in, arr_air_in,dep_time_in, arr_time_in, flight_dur_in,
+                            flight_stay_in, fare_travel, b.strftime("%y/%m/%d"), a.strftime("%y/%m/%d"),
+                            c,'Thiruvananthapuram', 'SkyScanner')
+                        cursor.execute(postgres_insert_query, record_to_insert)
+
+                        connection.commit()
+                        count = cursor.rowcount
+                        print (count, "Record inserted successfully into scrapped data table")
+
+                    except (Exception, psycopg2.Error) as error:
+                        if (connection):
+                            print("Failed to insert record into mobile table", error)
+
+            i += 1
+        j +=1
+
